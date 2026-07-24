@@ -63,8 +63,8 @@
   .ring{position:relative;width:150px;height:150px;margin:6px auto 2px}
   .ring svg{transform:rotate(-90deg)}
   .ring .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-  .ring .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:40px;line-height:1}
-  .ring .lbl{font-size:12px;color:var(--mut);margin-top:3px}
+  .ring .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:21px;line-height:1;letter-spacing:.5px;white-space:nowrap}
+  .ring .lbl{font-size:10.5px;color:var(--mut);margin-top:5px;letter-spacing:.6px}
   /* forfait list */
   .plan{display:flex;align-items:center;justify-content:space-between;gap:12px;
     background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:15px 16px;margin-top:12px}
@@ -359,32 +359,44 @@
     const total = TRIAL_DAYS*24*3600*1000;
     const end = start + total;
     const left = Math.max(0, end - Date.now());
-    const heures = Math.floor(left/3600000);
+    const jours = Math.floor(left/86400000);
+    const heures = Math.floor((left%86400000)/3600000);
     const minutes = Math.floor((left%3600000)/60000);
-    return { active: left>0, left, total, heures, minutes };
+    const secondes = Math.floor((left%60000)/1000);
+    return { active: left>0, left, total, jours, heures, minutes, secondes };
   }
-  function showHome(){
+  let chrono=null;
+  function stopChrono(){ if(chrono){ clearInterval(chrono); chrono=null; } }
+
+  function peindreTrial(){
+    if(!me) return stopChrono();
     const t = trialInfo();
     const C = 2*Math.PI*66;
     $("ring-fg").setAttribute("stroke-dasharray", C.toFixed(1));
     if(t.active){
-      if(t.heures >= 1){
-        $("ring-num").textContent = t.heures;
-        $("ring-lbl").textContent = t.heures>1 ? "heures restantes" : "heure restante";
-      }else{
-        $("ring-num").textContent = t.minutes;
-        $("ring-lbl").textContent = "min restantes";
-      }
+      const p=n=>String(n).padStart(2,"0");
+      $("ring-num").textContent = p(t.jours)+":"+p(t.heures)+":"+p(t.minutes)+":"+p(t.secondes);
+      $("ring-lbl").textContent = "j : h : min : s";
       $("ring-fg").setAttribute("stroke-dashoffset", (C*(1 - t.left/t.total)).toFixed(1));
       $("home-title").textContent = "Tu es connecté";
       $("home-sub").textContent = "Profite de ton internet gratuit. Quand il se termine, prends un forfait pour continuer.";
     }else{
-      $("ring-num").textContent = "0";
+      stopChrono();
+      $("ring-num").textContent = "00:00:00:00";
       $("ring-lbl").textContent = "terminé";
       $("ring-fg").setAttribute("stroke-dashoffset", C.toFixed(1));
       $("home-title").textContent = "Ton temps est écoulé";
       $("home-sub").textContent = "Prends un forfait pour retrouver ta connexion.";
     }
+  }
+
+  function showHome(){
+    peindreTrial();
+    stopChrono();
+    chrono = setInterval(()=>{
+      if($("s-home").classList.contains("hidden")) return stopChrono();
+      peindreTrial();
+    }, 1000);
     show("s-home");
   }
   $("btn-forfaits").addEventListener("click", openPlans);
