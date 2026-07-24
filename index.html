@@ -204,6 +204,15 @@
     <button id="btn-claim-home" class="btn ghost">Retour à l'accueil</button>
   </div>
 
+  <!-- ACCES ACTIF -->
+  <div id="s-actif" class="card center hidden">
+    <h2>Paiement confirmé</h2>
+    <p class="lead" id="actif-sub">Ton forfait est enregistré.</p>
+    <div class="code" id="actif-code">— — —</div>
+    <button id="btn-copy2" class="btn">Copier le code</button>
+    <button id="btn-actif-home" class="btn ghost">Retour à l'accueil</button>
+  </div>
+
   <!-- CODE -->
   <div id="s-code" class="card center hidden">
     <h2>Ton code est prêt</h2>
@@ -228,7 +237,7 @@
   const TRIAL_DAYS = 1;
 
   const $ = id => document.getElementById(id);
-  const screens = ["s-load","s-auth","s-home","s-plans","s-pay","s-wait","s-claim","s-claim-ok","s-code"];
+  const screens = ["s-load","s-auth","s-home","s-plans","s-pay","s-wait","s-claim","s-claim-ok","s-actif","s-code"];
   function show(id){ screens.forEach(s=>$(s).classList.toggle("hidden", s!==id)); }
   function err(el,t){ el.textContent=t; el.classList.remove("hidden"); }
   function hide(el){ el.classList.add("hidden"); }
@@ -376,11 +385,31 @@
       const path=me.id+"/"+Date.now()+"."+ext;
       const up=await sb.storage.from("captures").upload(path, captureFile, { upsert:false });
       if(up.error) throw up.error;
-      const { error }=await sb.from("paiements").insert({
+      const { data:ins, error }=await sb.from("paiements").insert({
         compte_id:me.id, forfait_id:chosen.id, montant:chosen.prix_fcfa,
         capture_url:path, statut:"en_attente"
-      });
+      }).select().single();
       if(error) throw error;
+
+      // Vérification automatique de la capture
+      btn.textContent="Vérification…";
+      let r=null;
+      try{
+        const inv=await sb.functions.invoke("valider-paiement",{ body:{ paiement_id: ins.id } });
+        r=inv.data;
+      }catch(e){ r=null; }
+
+      if(r && r.statut==="refus"){
+        err($("pay-msg"), r.message||"Capture refusée.");
+        btn.disabled=false; btn.textContent="Envoyer ma capture";
+        return;
+      }
+      if(r && r.statut==="valide"){
+        $("actif-sub").textContent="Forfait "+(r.forfait||"")+" · "+(r.duree_jours||"")+" jours.";
+        await afficherAcces(ins.id);
+        return;
+      }
+      // sinon : vérification manuelle
       show("s-wait"); startPolling();
     }catch(e){
       err($("pay-msg"),"Envoi impossible. Vérifie ta connexion et réessaie.");
@@ -403,8 +432,31 @@
   }
   $("btn-refresh2").addEventListener("click", checkPaiement);
 
-  function showCode(p){
-    $("code-value").textContent = p.code_livre;
+  // Après validation automatique : montre le code si le stock en a livré un,
+  // sinon confirme simplement que l'accès est enregistré.
+  async function afficherAcces(paiementId){
+    let code=null;
+    try{
+      const { data } = await sb.from("paiements").select("code_livre").eq("id",paiementId).maybeSingle();
+      code = data && data.code_livre ? data.code_livre : null;
+    }catch(e){}
+    if(code){
+      $("actif-code").textContent=code;
+      $("actif-code").classList.remove("hidden");
+      $("btn-copy2").classList.remove("hidden");
+    }else{
+      $("actif-code").classList.add("hidden");
+      $("btn-copy2").classList.add("hidden");
+      $("actif-sub").textContent += " Ton accès s'ouvre automatiquement.";
+    }
+    show("s-actif");
+  }
+  $("btn-actif-home").addEventListener("click", routeLoggedIn);
+  $("btn-copy2").addEventListener("click", async ()=>{
+    try{ await navigator.clipboard.writeText($("actif-code").textContent); $("btn-copy2").textContent="Copié"; setTimeout(()=>$("btn-copy2").textContent="Copier le code",1500);}catch(e){}
+  });
+
+  function showCode(p){    $("code-value").textContent = p.code_livre;
     const f = forfaits.find(x=>x.id===p.forfait_id);
     $("code-meta").textContent = f ? ("Forfait "+f.nom+" · "+(f.duree_jours>1 ? f.duree_jours+" jours" : "1 jour")) : "";
     show("s-code");
