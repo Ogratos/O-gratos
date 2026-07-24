@@ -356,19 +356,26 @@
   // ---------- accueil / trial ----------
   function trialInfo(){
     const start = new Date(me.cree_le).getTime();
-    const end = start + TRIAL_DAYS*24*3600*1000;
-    const left = end - Date.now();
-    const days = Math.max(0, Math.ceil(left/(24*3600*1000)));
-    return { active: left>0, days, end };
+    const total = TRIAL_DAYS*24*3600*1000;
+    const end = start + total;
+    const left = Math.max(0, end - Date.now());
+    const heures = Math.floor(left/3600000);
+    const minutes = Math.floor((left%3600000)/60000);
+    return { active: left>0, left, total, heures, minutes };
   }
   function showHome(){
     const t = trialInfo();
     const C = 2*Math.PI*66;
     $("ring-fg").setAttribute("stroke-dasharray", C.toFixed(1));
     if(t.active){
-      $("ring-num").textContent = t.days;
-      $("ring-lbl").textContent = t.days>1 ? "jours restants" : "jour restant";
-      $("ring-fg").setAttribute("stroke-dashoffset", (C*(1 - t.days/TRIAL_DAYS)).toFixed(1));
+      if(t.heures >= 1){
+        $("ring-num").textContent = t.heures;
+        $("ring-lbl").textContent = t.heures>1 ? "heures restantes" : "heure restante";
+      }else{
+        $("ring-num").textContent = t.minutes;
+        $("ring-lbl").textContent = "min restantes";
+      }
+      $("ring-fg").setAttribute("stroke-dashoffset", (C*(1 - t.left/t.total)).toFixed(1));
       $("home-title").textContent = "Tu es connecté";
       $("home-sub").textContent = "Profite de ton internet gratuit. Quand il se termine, prends un forfait pour continuer.";
     }else{
