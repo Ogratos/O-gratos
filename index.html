@@ -170,7 +170,7 @@
   </div>
 
   <!-- EN ATTENTE -->
-  <div id="s-wait" class="card center">
+  <div id="s-wait" class="card center hidden">
     <div class="spin"></div>
     <h2 style="margin-top:14px">Paiement reçu</h2>
     <p class="lead">Ta demande est en cours de validation. Ton accès s'ouvrira dès qu'elle est acceptée, reste sur la page.</p>
@@ -223,8 +223,28 @@
 <script>
 (function(){
   "use strict";
+
+  // Anti-cache : on retire tout ancien service worker et ses caches AVANT tout,
+  // pour que le téléphone charge toujours la dernière version (évite l'écran figé).
+  try{
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }).catch(function(){});
+    }
+    if(window.caches && caches.keys){
+      caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
+    }
+  }catch(e){}
+
   const SUPABASE_URL = "https://kipkxoflhtmlezzjrprt.supabase.co";
   const SUPABASE_KEY = "sb_publishable_enK-PGviev-MieMC_9SSAA_Gmyu2C-f";
+
+  // Si la librairie Supabase n'a pas pu se charger (réseau du portail),
+  // on affiche un message clair au lieu d'un écran qui tourne sans fin.
+  if(!window.supabase || !window.supabase.createClient){
+    var _l=document.getElementById("s-load");
+    if(_l){ _l.innerHTML='<p class="lead">Connexion au réseau en cours… Si cet écran reste bloqué, coupe puis rallume le WiFi et recharge la page.</p>'; }
+    return;
+  }
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // Durée de l'essai découverte, en jours
@@ -565,8 +585,8 @@
     }
   });
 
-  // register service worker (PWA)
-  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+  // (Service worker retiré volontairement : sur un portail WiFi, le cache
+  //  provoquait des versions figées de la page. On charge toujours frais.)
 })();
 </script>
 </body>
