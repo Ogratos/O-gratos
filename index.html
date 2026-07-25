@@ -269,9 +269,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function err(el,t){ el.textContent=t; el.classList.remove("hidden"); }
   function hide(el){ el.classList.add("hidden"); }
 
-  // read MAC passed by the captive portal (MikroTik), if present
+  // MAC transmise par le portail (?mac=...). On la mémorise localement pour
+  // qu'elle persiste même si la page est rouverte plus tard sans le paramètre.
   const params = new URLSearchParams(location.search);
-  const deviceMac = params.get("mac") || params.get("client_mac") || null;
+  let deviceMac = params.get("mac") || params.get("client_mac") || null;
+  try{
+    if(deviceMac){ localStorage.setItem("ogratos_mac", deviceMac); }
+    else { deviceMac = localStorage.getItem("ogratos_mac") || null; }
+  }catch(e){}
 
   let me=null, forfaits=[], chosen=null, captureFile=null, pollTimer=null;
 
