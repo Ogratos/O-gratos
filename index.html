@@ -107,16 +107,13 @@
     <p class="lead" style="margin-top:12px">Connexion…</p>
   </div>
 
-  <!-- INSCRIPTION / CONNEXION -->
+  <!-- CONNEXION PAR NUMÉRO -->
   <div id="s-auth" class="card hidden">
     <h1 id="auth-title">Bienvenue sur O'gratos</h1>
-    <p class="lead" id="auth-lead">Crée ton compte avec ton numéro et reçois <b style="color:var(--txt)">1 jour d'internet gratuit</b>.</p>
+    <p class="lead" id="auth-lead">Entre ton numéro pour te connecter et recevoir <b style="color:var(--txt)">1 jour d'internet gratuit</b>.</p>
     <label for="phone">Ton numéro de téléphone</label>
     <input id="phone" type="tel" inputmode="numeric" placeholder="07 00 00 00 00" autocomplete="tel" />
-    <label for="pin" id="pin-label">Choisis un code secret (6 chiffres)</label>
-    <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="current-password" />
-    <button id="btn-create" class="btn">Créer mon compte</button>
-    <button id="btn-switch" class="btn ghost" style="margin-top:10px">J'ai déjà un compte</button>
+    <button id="btn-create" class="btn">Continuer</button>
     <div id="auth-msg" class="msg err hidden"></div>
     <div class="steps"><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
   </div>
@@ -308,71 +305,54 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     showHome();
   }
 
-  // ---------- inscription / connexion ----------
-  // Le numéro sert d'identifiant, le code PIN de mot de passe.
-  let modeConnexion = false;
-
+  // ---------- connexion par numéro (sans code secret) ----------
+  // Le numéro est l'identifiant. Un mot de passe interne est dérivé du numéro
+  // (le client ne le voit jamais). L'accès Internet dépend de la MAC, pas du compte.
   function emailDe(numero){ return numero + "@ogratos.app"; }
+  function motDePasseDe(numero){ return "ogr-" + numero + "-2026"; }
 
-  function majModeAuth(){
-    $("auth-title").textContent = modeConnexion ? "Content de te revoir" : "Bienvenue sur O'gratos";
-    $("auth-lead").innerHTML = modeConnexion
-      ? "Entre ton numéro et ton code secret pour retrouver ton compte."
-      : "Crée ton compte avec ton numéro et reçois <b style=\"color:var(--txt)\">1 jour d'internet gratuit</b>.";
-    $("pin-label").textContent = modeConnexion ? "Ton code secret" : "Choisis un code secret (6 chiffres)";
-    $("btn-create").textContent = modeConnexion ? "Me connecter" : "Créer mon compte";
-    $("btn-switch").textContent = modeConnexion ? "Créer un nouveau compte" : "J'ai déjà un compte";
-    hide($("auth-msg"));
+  // Crée la fiche compte si elle manque (auto-réparation). Une session est requise.
+  async function assurerCompte(raw){
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    await sb.from("comptes").insert({ id:user.id, numero:raw, device_mac:deviceMac, trial_utilise:true });
+    // une éventuelle erreur "duplicate" est normale (la fiche existait déjà)
+    await loadMe();
   }
-  $("btn-switch").addEventListener("click", ()=>{ modeConnexion = !modeConnexion; majModeAuth(); });
 
   $("btn-create").addEventListener("click", async ()=>{
     hide($("auth-msg"));
     const raw = $("phone").value.replace(/\s|-/g,"");
-    const pin = $("pin").value.trim();
     if(!/^\d{8,15}$/.test(raw)){ return err($("auth-msg"),"Entre un numéro valide (au moins 8 chiffres)."); }
-    if(!/^\d{6}$/.test(pin)){ return err($("auth-msg"),"Le code secret doit faire exactement 6 chiffres."); }
 
     const btn=$("btn-create"); const libelle=btn.textContent;
     btn.disabled=true; btn.textContent="…";
 
+    const email=emailDe(raw), pass=motDePasseDe(raw);
+
     try{
-      if(modeConnexion){
-        const { error } = await sb.auth.signInWithPassword({ email: emailDe(raw), password: pin });
-        if(error){
-          err($("auth-msg"),"Numéro ou code secret incorrect.");
+      // 1. On tente d'abord la connexion
+      let { error } = await sb.auth.signInWithPassword({ email, password: pass });
+
+      if(error){
+        // 2. Pas encore de compte -> on le crée
+        const { error:ae } = await sb.auth.signUp({ email, password: pass });
+        if(ae && !String(ae.message).toLowerCase().includes("already")){
+          err($("auth-msg"),"Connexion impossible. Réessaie.");
           btn.disabled=false; btn.textContent=libelle; return;
         }
-        await loadMe();
-        if(!me){ err($("auth-msg"),"Compte introuvable."); btn.disabled=false; btn.textContent=libelle; return; }
-        await routeLoggedIn();
-        return;
+        // On s'assure d'avoir une session
+        let { data:{ session } } = await sb.auth.getSession();
+        if(!session){
+          const { error:se } = await sb.auth.signInWithPassword({ email, password: pass });
+          if(se){ err($("auth-msg"),"Connexion impossible. Réessaie."); btn.disabled=false; btn.textContent=libelle; return; }
+        }
       }
 
-      // Création
-      const { error:ae } = await sb.auth.signUp({ email: emailDe(raw), password: pin });
-      if(ae){
-        if(String(ae.message).toLowerCase().includes("already"))
-          err($("auth-msg"),"Ce numéro a déjà un compte. Touche « J'ai déjà un compte ».");
-        else err($("auth-msg"),"Création impossible. Réessaie.");
-        btn.disabled=false; btn.textContent=libelle; return;
-      }
-
-      // Certains projets exigent une session : on se connecte dans la foulée
-      let { data:{ session } } = await sb.auth.getSession();
-      if(!session){
-        const { error:se } = await sb.auth.signInWithPassword({ email: emailDe(raw), password: pin });
-        if(se){ err($("auth-msg"),"Compte créé. Touche « J'ai déjà un compte » pour te connecter."); btn.disabled=false; btn.textContent=libelle; return; }
-      }
-
-      const { data:{ user } } = await sb.auth.getUser();
-      const { error } = await sb.from("comptes").insert({ id:user.id, numero:raw, device_mac:deviceMac, trial_utilise:true });
-      if(error && !String(error.message).includes("duplicate")){
-        err($("auth-msg"),"Impossible de créer le compte. Réessaie.");
-        btn.disabled=false; btn.textContent=libelle; return;
-      }
       await loadMe();
-      showHome();
+      if(!me){ await assurerCompte(raw); }   // crée/répare la fiche si besoin
+      if(!me){ err($("auth-msg"),"Connexion impossible. Réessaie."); btn.disabled=false; btn.textContent=libelle; return; }
+      await routeLoggedIn();
     }catch(e){
       err($("auth-msg"),"Connexion impossible. Vérifie ton signal et réessaie.");
       btn.disabled=false; btn.textContent=libelle;
@@ -438,8 +418,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   $("btn-logout").addEventListener("click", async ()=>{
     stopPolling();
     await sb.auth.signOut();
-    me=null; modeConnexion=true; majModeAuth();
-    $("phone").value=""; $("pin").value="";
+    me=null;
+    $("phone").value="";
+    hide($("auth-msg"));
     show("s-auth");
   });
 
