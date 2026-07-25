@@ -389,6 +389,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   let chrono=null;
   function stopChrono(){ if(chrono){ clearInterval(chrono); chrono=null; } }
 
+  // Ouvre l'accès gratuit (1 jour) via le pont, au plus une fois par chargement.
+  let trialDemande=false;
+  async function assurerTrial(){
+    if(trialDemande) return; trialDemande=true;
+    try{ await sb.functions.invoke("activer-trial",{ body:{ mac: deviceMac } }); }catch(e){}
+  }
+
   function peindreTrial(){
     if(!me) return stopChrono();
     const t = trialInfo();
@@ -413,6 +420,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function showHome(){
     peindreTrial();
+    if(trialInfo().active) assurerTrial();
     stopChrono();
     chrono = setInterval(()=>{
       if($("s-home").classList.contains("hidden")) return stopChrono();
