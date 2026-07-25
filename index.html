@@ -148,7 +148,7 @@
   <!-- FORFAITS -->
   <div id="s-plans" class="card hidden">
     <h2>Choisis ton forfait</h2>
-    <p class="lead">Paie ton forfait, puis dépose la capture. Ton code arrive dès la validation.</p>
+    <p class="lead">Paie ton forfait, puis dépose la capture. Ton accès s'ouvre dès la validation.</p>
     <div id="plans-list"></div>
     <button id="btn-back1" class="btn ghost">Retour</button>
   </div>
@@ -173,7 +173,7 @@
   <div id="s-wait" class="card center">
     <div class="spin"></div>
     <h2 style="margin-top:14px">Paiement reçu</h2>
-    <p class="lead">Ta demande est en cours de validation. Ton code apparaîtra ici automatiquement, reste sur la page.</p>
+    <p class="lead">Ta demande est en cours de validation. Ton accès s'ouvrira dès qu'elle est acceptée, reste sur la page.</p>
     <button id="btn-refresh2" class="btn ghost">Vérifier maintenant</button>
     <button id="btn-claim" class="btn ghost">J'ai payé mais rien ne se passe</button>
   </div>
@@ -187,7 +187,7 @@
     <select id="claim-forfait"></select>
 
     <label for="claim-msg">Ce qui s'est passé</label>
-    <textarea id="claim-msg" rows="3" placeholder="Ex : j'ai payé à 14h, je n'ai jamais reçu de code."></textarea>
+    <textarea id="claim-msg" rows="3" placeholder="Ex : j'ai payé à 14h, je n'ai toujours pas de connexion."></textarea>
 
     <div class="filebox">
       Capture du paiement
@@ -211,19 +211,9 @@
   <!-- ACCES ACTIF -->
   <div id="s-actif" class="card center hidden">
     <h2>Paiement confirmé</h2>
-    <p class="lead" id="actif-sub">Ton forfait est enregistré.</p>
-    <div class="code" id="actif-code">— — —</div>
-    <button id="btn-copy2" class="btn">Copier le code</button>
+    <p class="lead" id="actif-sub">Ton forfait est activé.</p>
+    <p class="lead" style="margin-top:10px">Ton accès s'ouvre tout seul sur ce téléphone. Patiente environ une minute, puis navigue normalement. Si ça ne passe pas, coupe et rallume le WiFi.</p>
     <button id="btn-actif-home" class="btn ghost">Retour à l'accueil</button>
-  </div>
-
-  <!-- CODE -->
-  <div id="s-code" class="card center hidden">
-    <h2>Ton code est prêt</h2>
-    <p class="lead">Tape ce code dans la page WiFi pour te connecter.</p>
-    <div class="code" id="code-value">— — —</div>
-    <button id="btn-copy" class="btn">Copier le code</button>
-    <p class="lead" id="code-meta" style="margin-top:12px"></p>
   </div>
 
   <div class="foot">O'gratos · le WiFi du quartier</div>
@@ -241,7 +231,7 @@
   const TRIAL_DAYS = 1;
 
   const $ = id => document.getElementById(id);
-  const screens = ["s-load","s-auth","s-home","s-plans","s-pay","s-wait","s-claim","s-claim-ok","s-actif","s-code"];
+  const screens = ["s-load","s-auth","s-home","s-plans","s-pay","s-wait","s-claim","s-claim-ok","s-actif"];
   function show(id){ screens.forEach(s=>$(s).classList.toggle("hidden", s!==id)); }
   function err(el,t){ el.textContent=t; el.classList.remove("hidden"); }
   function hide(el){ el.classList.add("hidden"); }
@@ -272,11 +262,9 @@
   }
 
   async function routeLoggedIn(){
-    // s'il y a un paiement validé avec code -> écran code
+    // une demande encore en attente de validation -> écran d'attente
     const { data:pays } = await sb.from("paiements")
       .select("*").eq("compte_id", me.id).order("cree_le",{ascending:false}).limit(5);
-    const valide = (pays||[]).find(p=>p.statut==="valide" && p.code_livre);
-    if(valide){ return showCode(valide); }
     const attente = (pays||[]).find(p=>p.statut==="en_attente");
     if(attente){ show("s-wait"); startPolling(); return; }
     showHome();
@@ -479,8 +467,7 @@
         return;
       }
       if(r && r.statut==="valide"){
-        $("actif-sub").textContent="Forfait "+(r.forfait||"")+" · "+(r.duree_jours||"")+" jours.";
-        await afficherAcces(ins.id);
+        montrerAcces({ forfait_id: chosen.id });
         return;
       }
       // sinon : vérification manuelle
@@ -502,42 +489,19 @@
     const { data } = await sb.from("paiements").select("*").eq("compte_id", me.id)
       .order("cree_le",{ascending:false}).limit(1);
     const p=(data||[])[0];
-    if(p && p.statut==="valide" && p.code_livre){ stopPolling(); showCode(p); }
+    if(p && p.statut==="valide"){ stopPolling(); montrerAcces(p); }
   }
   $("btn-refresh2").addEventListener("click", checkPaiement);
 
-  // Après validation automatique : montre le code si le stock en a livré un,
-  // sinon confirme simplement que l'accès est enregistré.
-  async function afficherAcces(paiementId){
-    let code=null;
-    try{
-      const { data } = await sb.from("paiements").select("code_livre").eq("id",paiementId).maybeSingle();
-      code = data && data.code_livre ? data.code_livre : null;
-    }catch(e){}
-    if(code){
-      $("actif-code").textContent=code;
-      $("actif-code").classList.remove("hidden");
-      $("btn-copy2").classList.remove("hidden");
-    }else{
-      $("actif-code").classList.add("hidden");
-      $("btn-copy2").classList.add("hidden");
-      $("actif-sub").textContent += " Ton accès s'ouvre automatiquement.";
-    }
+  // Après validation : l'accès s'ouvre tout seul sur cet appareil (via le pont).
+  function montrerAcces(p){
+    const f = forfaits.find(x=>x.id===(p&&p.forfait_id)) || chosen || null;
+    $("actif-sub").textContent = f
+      ? ("Forfait "+f.nom+" · "+(f.duree_jours>1 ? f.duree_jours+" jours" : "1 jour")+" activé.")
+      : "Ton forfait est activé.";
     show("s-actif");
   }
   $("btn-actif-home").addEventListener("click", routeLoggedIn);
-  $("btn-copy2").addEventListener("click", async ()=>{
-    try{ await navigator.clipboard.writeText($("actif-code").textContent); $("btn-copy2").textContent="Copié"; setTimeout(()=>$("btn-copy2").textContent="Copier le code",1500);}catch(e){}
-  });
-
-  function showCode(p){    $("code-value").textContent = p.code_livre;
-    const f = forfaits.find(x=>x.id===p.forfait_id);
-    $("code-meta").textContent = f ? ("Forfait "+f.nom+" · "+(f.duree_jours>1 ? f.duree_jours+" jours" : "1 jour")) : "";
-    show("s-code");
-  }
-  $("btn-copy").addEventListener("click", async ()=>{
-    try{ await navigator.clipboard.writeText($("code-value").textContent); $("btn-copy").textContent="Copié"; setTimeout(()=>$("btn-copy").textContent="Copier le code",1500);}catch(e){}
-  });
 
   // ---------- réclamation ----------
   let claimFile=null;
